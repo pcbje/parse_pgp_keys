@@ -7,10 +7,6 @@ import struct
 import logging
 import json
 
-
-import hunch.helper as helper
-import hunch.abstract_module as abstract_module
-
 logger = logging.getLogger(__name__)
 
 
@@ -193,8 +189,7 @@ class PublicSubKeyParser(PGPDataParser):
   def parse(self):
     return None
 
-
-class Module(abstract_module.Module):
+class Module():
   PARSERS = {
       2: PGPSignatureParser,
       5: PublicKeyParser,
@@ -203,16 +198,14 @@ class Module(abstract_module.Module):
       14: PublicSubKeyParser
   }
 
-  def __init__(self, pipeline, worker_count):
-    self.pipeline = pipeline
-    self.pipeline.publishes([helper.META_TEXT])
-    self.pipeline.subscribe(helper.EXTRACTED_TEXT, self.parse)
+  def __init__(self):
+    pass
 
   def _process_packet(self, data, offset, packets):
     tag = (ord(data[offset]) & 0x3f) >> 2
 
     if tag not in self.PARSERS:
-      raise ValueError(u'Unknown tag %s' % tag)
+        raise Exception('not supported ' + str(tag))
 
     parser = self.PARSERS[tag](data[offset + 1::])
     packet = parser.parse()
@@ -259,28 +252,21 @@ class Module(abstract_module.Module):
     return base64.b64decode(encoded)
 
   def parse(self, data):
-    if 'BEGIN PGP PUBLIC KEY BLOCK' not in data[helper.TEXT]:
+      
+    if 'BEGIN PGP PUBLIC KEY BLOCK' not in data:
       return
 
     pgp_keys = []
 
-    for armored in self._next_armored(data[helper.TEXT]):
+    for armored in self._next_armored(data):
       decoded = self._get_decoded(armored)
 
       offset = 0
       packets = []
-
-      while offset < len(decoded):
-        try:
+      
+      while offset < len(decoded):                  
           offset += self._process_packet(decoded, offset, packets)
-        except Exception as err:
-          logger.debug(
-              u'Unable to parse PGP key from "%s": %s' %
-              (data[
-                  helper.FILE_PATH],
-                  err))
-          break
-
+        
       pgp_key = {}
       valid = False
 
@@ -302,8 +288,10 @@ class Module(abstract_module.Module):
         del pgp_key[u'type']
         pgp_keys.append(pgp_key)
 
-    if len(pgp_keys) > 0:
-      self.pipeline.artifact(data, u'pgp_keys', pgp_keys)
-      data[helper.TEXT] = json.dumps(pgp_keys)
-      data[helper.PAGE_ID] = 0
-      self.pipeline.publish(helper.META_TEXT, data)
+    print (json.dumps(pgp_keys, indent=2))
+
+if __name__ == '__main__':
+    import sys
+    pgp = Module()    
+    with open(sys.argv[1]) as inp:
+        pgp.parse(inp.read())
